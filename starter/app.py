@@ -15,11 +15,25 @@ def index():
 
 @app.route('/new')
 def new_game():
-    clues = int(request.args.get('clues', 35))
+    difficulty = request.args.get('difficulty', 'medium').lower()
+    
+    # Map difficulty to number of clues
+    difficulty_map = {
+        'easy': 50,
+        'medium': 35,
+        'hard': 25
+    }
+    
+    # Fall back to explicit clues parameter if provided (for backward compatibility)
+    if 'clues' in request.args:
+        clues = int(request.args.get('clues'))
+    else:
+        clues = difficulty_map.get(difficulty, 35)
+    
     puzzle, solution = sudoku_logic.generate_puzzle(clues)
     CURRENT['puzzle'] = puzzle
     CURRENT['solution'] = solution
-    return jsonify({'puzzle': puzzle})
+    return jsonify({'puzzle': puzzle, 'solution': solution})
 
 @app.route('/check', methods=['POST'])
 def check_solution():
