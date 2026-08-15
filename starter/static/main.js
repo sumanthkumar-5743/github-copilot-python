@@ -70,6 +70,86 @@ function stopTimer() {
   timerStopped = true;
 }
 
+function getConflictingCells(row, col, value) {
+  const conflictingCells = [];
+  const boardDiv = document.getElementById('sudoku-board');
+  const inputs = boardDiv.getElementsByTagName('input');
+  
+  if (!value || value === '0') return conflictingCells;
+  
+  const numValue = parseInt(value, 10);
+  
+  // Check row
+  for (let j = 0; j < SIZE; j++) {
+    if (j !== col) {
+      const idx = row * SIZE + j;
+      const inp = inputs[idx];
+      if (inp.value === value && !inp.disabled) {
+        conflictingCells.push(idx);
+      }
+    }
+  }
+  
+  // Check column
+  for (let i = 0; i < SIZE; i++) {
+    if (i !== row) {
+      const idx = i * SIZE + col;
+      const inp = inputs[idx];
+      if (inp.value === value && !inp.disabled) {
+        conflictingCells.push(idx);
+      }
+    }
+  }
+  
+  // Check 3x3 box
+  const boxRow = Math.floor(row / 3);
+  const boxCol = Math.floor(col / 3);
+  const startRow = boxRow * 3;
+  const startCol = boxCol * 3;
+  
+  for (let i = startRow; i < startRow + 3; i++) {
+    for (let j = startCol; j < startCol + 3; j++) {
+      if (i !== row || j !== col) {
+        const idx = i * SIZE + j;
+        const inp = inputs[idx];
+        if (inp.value === value && !inp.disabled) {
+          conflictingCells.push(idx);
+        }
+      }
+    }
+  }
+  
+  return conflictingCells;
+}
+
+function updateCellConflicts(row, col) {
+  const boardDiv = document.getElementById('sudoku-board');
+  const inputs = boardDiv.getElementsByTagName('input');
+  const idx = row * SIZE + col;
+  const inp = inputs[idx];
+  const value = inp.value;
+  
+  // Clear all invalid-entry classes
+  for (let i = 0; i < inputs.length; i++) {
+    if (!inputs[i].disabled && !inputs[i].classList.contains('hinted')) {
+      inputs[i].classList.remove('invalid-entry');
+    }
+  }
+  
+  if (!value) return;
+  
+  // Find and highlight conflicts
+  const conflicts = getConflictingCells(row, col, value);
+  conflicts.forEach(conflictIdx => {
+    inputs[conflictIdx].classList.add('invalid-entry');
+  });
+  
+  // Highlight the current cell if it has conflicts
+  if (conflicts.length > 0) {
+    inp.classList.add('invalid-entry');
+  }
+}
+
 function createBoardElement() {
   const boardDiv = document.getElementById('sudoku-board');
   boardDiv.innerHTML = '';
@@ -80,12 +160,18 @@ function createBoardElement() {
       const input = document.createElement('input');
       input.type = 'text';
       input.maxLength = 1;
-      input.className = 'sudoku-cell';
+      const boxRow = Math.floor(i / 3);
+      const boxCol = Math.floor(j / 3);
+      const shouldShade = (boxRow + boxCol) % 2 === 0;
+      input.className = shouldShade ? 'sudoku-cell box-shade' : 'sudoku-cell';
       input.dataset.row = i;
       input.dataset.col = j;
       input.addEventListener('input', (e) => {
         const val = e.target.value.replace(/[^1-9]/g, '');
         e.target.value = val;
+        const row = parseInt(e.target.dataset.row, 10);
+        const col = parseInt(e.target.dataset.col, 10);
+        updateCellConflicts(row, col);
       });
       rowDiv.appendChild(input);
     }
@@ -162,7 +248,11 @@ function provideHint() {
   // Fill in the hint
   hint.input.value = correctValue;
   hint.input.disabled = true;
-  hint.input.className = 'sudoku-cell hinted';
+  const boxRow = Math.floor(hint.row / 3);
+  const boxCol = Math.floor(hint.col / 3);
+  const hasBoxShade = (boxRow + boxCol) % 2 === 0;
+  const baseClass = hasBoxShade ? 'sudoku-cell box-shade' : 'sudoku-cell';
+  hint.input.className = baseClass + ' hinted';
   
   // Track the hinted cell
   const cellKey = `${hint.row},${hint.col}`;
@@ -195,22 +285,34 @@ function checkPuzzle() {
         if (userValue === correctValue) {
           correctCells++;
         } else {
-          incorrectCells.push(idx);
+          incorrectCells.push({idx, row: i, col: j});
         }
       }
     }
   }
   
-  // Reset all non-disabled cells to default styling
-  for (let idx = 0; idx < inputs.length; idx++) {
-    const inp = inputs[idx];
-    if (inp.disabled) continue;
-    inp.className = 'sudoku-cell';
+  // Reset all non-disabled cells to their base classes (preserve box-shade)
+  for (let i = 0; i < SIZE; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      const idx = i * SIZE + j;
+      const inp = inputs[idx];
+      if (inp.disabled) continue;
+      
+      const boxRow = Math.floor(i / 3);
+      const boxCol = Math.floor(j / 3);
+      const hasBoxShade = (boxRow + boxCol) % 2 === 0;
+      const baseClass = hasBoxShade ? 'sudoku-cell box-shade' : 'sudoku-cell';
+      inp.className = baseClass;
+    }
   }
   
-  // Highlight incorrect cells in red
-  incorrectCells.forEach(idx => {
-    inputs[idx].className = 'sudoku-cell incorrect';
+  // Highlight incorrect cells
+  incorrectCells.forEach(({idx, row, col}) => {
+    const boxRow = Math.floor(row / 3);
+    const boxCol = Math.floor(col / 3);
+    const hasBoxShade = (boxRow + boxCol) % 2 === 0;
+    const baseClass = hasBoxShade ? 'sudoku-cell box-shade' : 'sudoku-cell';
+    inputs[idx].className = baseClass + ' incorrect';
   });
   
   // Provide feedback
@@ -251,12 +353,22 @@ async function checkSolution() {
     return;
   }
   const incorrect = new Set(data.incorrect.map(x => x[0]*SIZE + x[1]));
-  for (let idx = 0; idx < inputs.length; idx++) {
-    const inp = inputs[idx];
-    if (inp.disabled) continue;
-    inp.className = 'sudoku-cell';
-    if (incorrect.has(idx)) {
-      inp.className = 'sudoku-cell incorrect';
+  
+  // Reset all non-disabled cells to their base classes (preserve box-shade)
+  for (let i = 0; i < SIZE; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      const idx = i * SIZE + j;
+      const inp = inputs[idx];
+      if (inp.disabled) continue;
+      
+      const boxRow = Math.floor(i / 3);
+      const boxCol = Math.floor(j / 3);
+      const hasBoxShade = (boxRow + boxCol) % 2 === 0;
+      const baseClass = hasBoxShade ? 'sudoku-cell box-shade' : 'sudoku-cell';
+      inp.className = baseClass;
+      if (incorrect.has(idx)) {
+        inp.className = baseClass + ' incorrect';
+      }
     }
   }
   if (incorrect.size === 0) {
